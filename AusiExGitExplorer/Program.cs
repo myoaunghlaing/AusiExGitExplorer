@@ -1,66 +1,94 @@
-﻿using Newtonsoft.Json;
+﻿using log4net;
+using log4net.Config;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace AusiExGitExplorer
 {
     class Program
     {
-        private static HttpClient client = new HttpClient();
-
+        private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
+                
         static async Task Main(string[] args)
         {
+            var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
+            XmlConfigurator.Configure(logRepository, new FileInfo("log4net.config"));
 
-            //using (var client = new HttpClient())
-            //{
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("token", "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");                               
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "http://developer.github.com/v3/#user-agent-required");
-                var contentsJson = await client.GetAsync("https://api.github.com/user/repos");
-                Console.WriteLine(contentsJson.StatusCode);
-                JArray contents = (JArray)JsonConvert.DeserializeObject(contentsJson.Content.ReadAsStringAsync().Result);
-                List<string> repoList = new List<string>();
-
-                Console.WriteLine("Repositories accessible");
-                Console.WriteLine("=================================================");
-               
-                foreach (JObject content in contents.Children<JObject>())
+            try
+            {
+                using (var client = new HttpClient())
                 {
-                    string repo = (string)content["name"];
-                    repoList.Add(repo);
-                    Console.WriteLine("id: " + (string)content["id"]);
-                    Console.WriteLine("name: " + repo);
-                    Console.WriteLine("full_name: " + (string)content["full_name"]);
-                    Console.WriteLine("html_url: " + (string)content["html_url"]);
-                    Console.WriteLine("description: " + (string)content["description"]);
-                    Console.WriteLine("=================================================");
-                                      
-                }
+                    string user = ConfigurationManager.AppSettings.Get("user");
+                    string token = ConfigurationManager.AppSettings.Get("token");
+                    string baseUrl = ConfigurationManager.AppSettings.Get("baseUrl");
 
-                string user = "myoaunghlaing";
-                foreach (string repo in repoList)
-                {
-                string url = $"https://api.github.com/repos/{user}/{repo}/commits?per_page=10";
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("token", token);
+                    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "http://developer.github.com/v3/#user-agent-required");
 
+                    var respRepos = await client.GetAsync($"{baseUrl}/user/repos");
+                    log.Info($"Response status on getting user repos: {respRepos.StatusCode}");
+                    respRepos.EnsureSuccessStatusCode();
 
-                string contentsCommits = client.GetStringAsync("https://api.github.com/repos/myoaunghlaing/AuX_Myo/commits?per_page=10").Result;
-                    JArray commits = (JArray)JsonConvert.DeserializeObject(contentsCommits);
-                    foreach (JObject com in commits.Children<JObject>())
+                    JArray contents = (JArray)JsonConvert.DeserializeObject(respRepos.Content.ReadAsStringAsync().Result);
+                    List<string> repoList = new List<string>();
+
+                    log.Info("\n\nRepositories user has access");
+                    log.Info("=================================================");
+
+                    foreach (JObject content in contents.Children<JObject>())
                     {
-                        Console.WriteLine("sha: " + (string)com["sha"]);
+                        string repo = (string)content["name"];
+                        repoList.Add(repo);
+                        log.Info("id: " + (string)content["id"]);
+                        log.Info("name: " + repo);
+                        log.Info("full_name: " + (string)content["full_name"]);
+                        log.Info("html_url: " + (string)content["html_url"]);
+                        log.Info("description: " + (string)content["description"]);
+                        log.Info("=================================================");
                     }
 
-                }
-            
-            Console.ReadLine();
-        }
+                    log.Info("\n\nLatest 10 commits of the repositories");
+                    log.Info("=================================================");
+                    foreach (string repo in repoList)
+                    {
+                        string url = $"{baseUrl}/repos/{user}/{repo}/commits?per_page=10";
 
+                        var respCommits = await client.GetAsync(url);
+                        log.Info($"Response status on getting repo {repo} commits: {respRepos.StatusCode}");
+                        respCommits.EnsureSuccessStatusCode();
+
+                        JArray commits = (JArray)JsonConvert.DeserializeObject(respCommits.Content.ReadAsStringAsync().Result);
+                        log.Info("\n\nrepository: " + repo);
+                        log.Info("=================================================");
+                        foreach (JObject com in commits.Children<JObject>())
+                        {
+                            log.Info("sha: " + (string)com["sha"]);
+                            log.Info("author name: " + (string)com["commit"]["author"]["name"]);
+                            log.Info("email: " + (string)com["commit"]["author"]["email"]);
+                            log.Info("date: " + (string)com["commit"]["author"]["date"]);
+                            log.Info("message: " + (string)com["commit"]["message"]);
+                            log.Info("url: " + (string)com["url"]);
+                            log.Info("=================================================");
+                        }
+                    }           
+                    Console.ReadKey();
+                }
+            }
+            catch (Exception e)
+            {
+                log.Error(e.ToString());
+            }
+        }
        
     }
 }
